@@ -1,0 +1,16 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN"
+ "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+    <dict>
+        <key>CFBundleName</key>
+        <string>ObjectDetector</string>
+
+        <key>NSCameraUsageDescription</key>
+        <string>This app needs camera access for computer vision.</string>
+        <key>NSMicrophoneUsageDescription</key>
+        <string>This app needs microphone access for multimedia features.</string>
+        <key>NSLocalNetworkUsageDescription</key>
+        <string>Local network access may be required by multimedia backends.</string>
+    </dict>
+</plist>
