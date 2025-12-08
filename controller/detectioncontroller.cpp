@@ -15,7 +15,7 @@ void DetectionController::handleFrame(const QVideoFrame &frame)
     if(!frame.isValid()) return;
     if(!m_camera) return;
 
-    m_camera->processFrame(frame);
+    m_camera->processFrameInBatch(frame);
 }
 
 void DetectionController::setVideoSink(QVideoSink* sink)

@@ -23,7 +23,8 @@ public:
 
     QImage getFrame();
 
-    void processFrame(const QVideoFrame& frame);
+    void processFrameInBatch(const QVideoFrame& frame);
+    void processFrame(const QVideoFrame& frame );
 
     struct Detection {
         QRect rect;
@@ -35,7 +36,9 @@ private:
     void loadModel();
 #ifdef __OBJC__
     void processWithCoreML(CVPixelBufferRef pb);
+    void processBatch();
     MLModel *model;  // CoreML model
+    std::vector<CVPixelBufferRef> batchFrames;
 #endif
 };
 

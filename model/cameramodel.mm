@@ -70,6 +70,44 @@ void CameraModel::loadModel()
 #endif
 }
 
+static MLMultiArray* pixelBufferToNCHW(CVPixelBufferRef pb)
+{
+    CVPixelBufferLockBaseAddress(pb, kCVPixelBufferLock_ReadOnly);
+
+    size_t width  = CVPixelBufferGetWidth(pb);
+    size_t height = CVPixelBufferGetHeight(pb);
+    uint8_t *src  = (uint8_t*)CVPixelBufferGetBaseAddress(pb);
+    size_t stride = CVPixelBufferGetBytesPerRow(pb);
+
+    NSArray *shape = @[@1, @3, @(height), @(width)];
+    MLMultiArray *arr = [[MLMultiArray alloc]
+        initWithShape:shape
+              dataType:MLMultiArrayDataTypeFloat32
+                 error:nil];
+
+    float *dst = (float*)arr.dataPointer;
+
+    for (int y = 0; y < height; y++) {
+        uint8_t *row = src + y * stride;
+
+        for (int x = 0; x < width; x++) {
+            uint8_t b = row[4*x + 0];
+            uint8_t g = row[4*x + 1];
+            uint8_t r = row[4*x + 2];
+
+            int idx = y * width + x;
+
+            dst[idx + 0 * width * height] = r / 255.0f;
+            dst[idx + 1 * width * height] = g / 255.0f;
+            dst[idx + 2 * width * height] = b / 255.0f;
+        }
+    }
+
+    CVPixelBufferUnlockBaseAddress(pb, kCVPixelBufferLock_ReadOnly);
+
+    return arr;
+}
+
 static CVPixelBufferRef resizePixelBuffer(CVPixelBufferRef source,
                                           size_t width,
                                           size_t height)
@@ -99,16 +137,23 @@ static CVPixelBufferRef resizePixelBuffer(CVPixelBufferRef source,
 
     CIImage *inputImage = [CIImage imageWithCVPixelBuffer:source];
     CIContext *context = [CIContext contextWithOptions:nil];
+    CGColorSpaceRef colorSpace = CGColorSpaceCreateDeviceRGB();
 
     [context render:inputImage
     toCVPixelBuffer:output
              bounds:CGRectMake(0, 0, width, height)
-         colorSpace:CGColorSpaceCreateDeviceRGB()];
+         colorSpace:colorSpace];
+
+    CGColorSpaceRelease(colorSpace);
 
     return output;
 }
 
-
+/**
+ * @brief Converts from QVideoFrame to CVPixelBufferRef.
+ * @param frame
+ * @return frame in CVPixelBufferRef format.
+ */
 static CVPixelBufferRef QVideoFrame_to_CVPixelBuffer(QVideoFrame frame)
 {
 #ifdef __OBJC__
@@ -232,7 +277,76 @@ static CVPixelBufferRef QVideoFrame_to_CVPixelBuffer(QVideoFrame frame)
   return nullptr;
 }
 
+static MLMultiArray* makeBatch(const std::vector<CVPixelBufferRef> &frames)
+{
+  NSArray *shape = @[@2, @3, @640, @640];
+  MLMultiArray *batch = [[MLMultiArray alloc] initWithShape:shape dataType:MLMultiArrayDataTypeFloat32 error:nil];
+  float *dst = (float*)batch.dataPointer;
 
+  for(int b=0; b<2; b++) {
+    MLMultiArray *img = pixelBufferToNCHW(frames[b]);
+    float *src = (float*)img.dataPointer;
+
+    int imgSize = 3*640*640;
+    memcpy(dst + b * imgSize, src, imgSize*sizeof(float));
+  }
+  return batch;
+}
+
+/**
+ * @brief Process a batch of two frames at time in model.
+ */
+void CameraModel::processBatch()
+{
+#ifdef __OBJC__
+    @autoreleasepool {
+
+        if (!model) return;
+
+        // Build ML input array
+        MLMultiArray *batch = makeBatch(batchFrames);
+        MLFeatureValue *fv = [MLFeatureValue featureValueWithMultiArray:batch];
+
+        NSDictionary *inputDict = @{ @"image": fv };
+
+        NSError *err = nil;
+        MLDictionaryFeatureProvider *inputs =
+            [[MLDictionaryFeatureProvider alloc] initWithDictionary:inputDict error:&err];
+
+        if (err || !inputs) {
+            qWarning() << "Failed to build feature provider";
+            return;
+        }
+
+        id<MLFeatureProvider> output =
+            [model predictionFromFeatures:inputs error:&err];
+
+        if (err || !output) {
+            qWarning() << "CoreML prediction failed";
+            return;
+        }
+
+        // Get YOLO output
+        MLFeatureValue *rawVal = [output featureValueForName:@"var_1309"];
+        if (!rawVal) {
+            qWarning() << "Missing output var_1309";
+            return;
+        }
+
+        MLMultiArray *raw = rawVal.multiArrayValue;
+        float *data = (float*)raw.dataPointer;
+
+        qDebug() << "Batch prediction OK, output count:" << raw.count;
+
+        // TODO: run postprocessing here (one NMS per batch element)
+    }
+#endif
+}
+
+/**
+ * @brief Process one frame in model.
+ * @param pb
+ */
 void CameraModel::processWithCoreML(CVPixelBufferRef pb)
 {
 #ifdef __OBJC__
@@ -254,7 +368,7 @@ void CameraModel::processWithCoreML(CVPixelBufferRef pb)
     };
     MLDictionaryFeatureProvider *inputs = [[MLDictionaryFeatureProvider alloc] initWithDictionary:inputDict error:&err];
 
-    if (err) {
+    if (err || inputs == nil) {
       qWarning() << "Error creating input feature provider";
       return;
     }
@@ -294,6 +408,37 @@ void CameraModel::processWithCoreML(CVPixelBufferRef pb)
 #endif
 }
 
+/**
+ * @brief Process two frames in batch in the model.
+ * @param frame
+ */
+void CameraModel::processFrameInBatch(const QVideoFrame& frame )
+{
+#ifdef __OBJC__
+  if(!model) return;
+
+  CVPixelBufferRef pb = QVideoFrame_to_CVPixelBuffer(frame);
+
+  if(!pb) return;
+
+  CFRetain(pb);
+  batchFrames.push_back(pb);
+
+  if(batchFrames.size() == 2) {
+    processBatch();
+    for(auto &p : batchFrames) CFRelease(p);
+    batchFrames.clear();
+  }
+  CVPixelBufferRelease(pb);
+
+    // You will later connect this to detection signals
+#endif
+}
+
+/**
+ * @brief Process frame by frame.
+ * @param frame
+ */
 void CameraModel::processFrame(const QVideoFrame& frame )
 {
 #ifdef __OBJC__
