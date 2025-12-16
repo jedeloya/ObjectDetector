@@ -1,3 +1,25 @@
+/*
+ * ObjectRecognition
+ *
+ * Copyright (C) 2025 José de Jesús Deloya Cruz
+ *
+ * This program is free software: you can redistribute it and/or modify
+ * it under the terms of the GNU General Public License as published by
+ * the Free Software Foundation, either version 3 of the License, or
+ * (at your option) any later version.
+ *
+ * This program is distributed in the hope that it will be useful,
+ * but WITHOUT ANY WARRANTY; without even the implied warranty of
+ * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.
+ *
+ * You should have received a copy of the GNU General Public License
+ * along with this program.  If not, see <https://www.gnu.org/licenses/>.
+ */
+
+// SPDX-License-Identifier: GPL-3.0-or-later
+// Project: ObjectRecognition
+// Copyright (C) 2025 José de Jesús Deloya Cruz
+
 // -*- mode: objc++; -*-
 #import "cameramodel.hpp"
 #include <QDebug>
@@ -30,7 +52,7 @@ CameraModel::CameraModel(QObject *parent)
           Qt::QueuedConnection);
 
   connect(parser, &YoloParser::parsingFinished,
-          this, [this]() {
+          this, [this](double ms) {
           qWarning() << "Batch parsing finished, releasing in-flight frames";
           @autoreleasepool {
             for(auto& pb : inFlightFrames) {
@@ -39,6 +61,7 @@ CameraModel::CameraModel(QObject *parent)
             inFlightFrames.clear();
             batchInFligt = false;
           }
+          emit parsingFinished(ms);
         },
           Qt::QueuedConnection);
 }
@@ -48,6 +71,25 @@ CameraModel::~CameraModel() {
     parseThread->quit();
     parseThread->wait();
   }
+
+#ifdef __OBJC__
+  @autoreleasepool {
+    // Release all in-flight buffers
+    for(auto &pb : inFlightFrames) {
+      if(pb) CVPixelBufferRelease(pb);
+    }
+    inFlightFrames.clear();
+
+    // Release any leftover batch frames
+    for(auto &pb : batchFrames) {
+      if(pb) CVPixelBufferRelease(pb);
+    }
+    batchFrames.clear();
+
+    // Release Core ML model
+    model = nil;
+  }
+#endif
 }
 
 void CameraModel::loadModel()

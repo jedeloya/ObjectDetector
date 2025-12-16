@@ -1,3 +1,12 @@
+# ObjectDetector
+#
+# Copyright (C) 2025 José de Jesús Deloya Cruz
+#
+# This program is free software: you can redistribute it and/or modify
+# it under the terms of the GNU General Public License as published by
+# the Free Software Foundation, either version 3 of the License, or
+# (at your option) any later version.
+
 cmake_minimum_required(VERSION 3.16)
 
 project(ObjectDetector VERSION 0.1 LANGUAGES CXX)
