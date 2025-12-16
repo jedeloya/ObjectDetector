@@ -12,11 +12,13 @@ qt_standard_project_setup(REQUIRES 6.8)
 set(SRC_FILES
     main.cpp
     controller/detectioncontroller.cpp
-    model/cameramodel.mm)
+    model/cameramodel.mm
+    model/yoloparser.cpp)
 
 set(HEADER_FILES
     controller/detectioncontroller.h
-    model/cameramodel.hpp)
+    model/cameramodel.hpp
+    model/yoloparser.h)
 
 set_source_files_properties(
     model/cameramodel.mm

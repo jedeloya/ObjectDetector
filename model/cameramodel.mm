@@ -3,6 +3,8 @@
 #include <QDebug>
 #include <QFile>
 #include <QDir>
+#include <QThread>
+#include <QVector>
 
 #import <Foundation/Foundation.h>
 #import <CoreVideo/CoreVideo.h>
@@ -12,9 +14,41 @@ CameraModel::CameraModel(QObject *parent)
     : QObject{parent}, model(nil)
 {
   loadModel();
+  parser = new YoloParser();
+  parseThread = new QThread(this);
+  parser->moveToThread(parseThread);
+  connect(parseThread, &QThread::finished,
+          parser, &QObject::deleteLater);
+  parseThread->start();
+
+  connect(this, &CameraModel::rawBatchReady,
+          parser, &YoloParser::parseBatch,
+          Qt::QueuedConnection);
+
+  connect(parser, &YoloParser::detectionsReady,
+          this, &CameraModel::handleDetections,
+          Qt::QueuedConnection);
+
+  connect(parser, &YoloParser::parsingFinished,
+          this, [this]() {
+          qWarning() << "Batch parsing finished, releasing in-flight frames";
+          @autoreleasepool {
+            for(auto& pb : inFlightFrames) {
+              if(pb) CVPixelBufferRelease(pb);
+            }
+            inFlightFrames.clear();
+            batchInFligt = false;
+          }
+        },
+          Qt::QueuedConnection);
 }
 
-CameraModel::~CameraModel() {}
+CameraModel::~CameraModel() {
+  if(parseThread) {
+    parseThread->quit();
+    parseThread->wait();
+  }
+}
 
 void CameraModel::loadModel()
 {
@@ -65,7 +99,8 @@ void CameraModel::loadModel()
             "CPU only");
     model = loaded;
 
-    qInfo() << "CoreML model successfully loaded: " << QString::fromUtf8([[model description] UTF8String]);
+    // qInfo() << "CoreML model successfully loaded: " << QString::fromUtf8([[model description] UTF8String]);
+    qInfo() << "CoreML model successfully loaded";
   }
 #endif
 }
@@ -86,6 +121,12 @@ static MLMultiArray* pixelBufferToNCHW(CVPixelBufferRef pb)
                  error:nil];
 
     float *dst = (float*)arr.dataPointer;
+
+    if(!src || !dst) {
+        qWarning() << "Failed to get pixel buffer base address or MLMultiArray data pointer";
+        CVPixelBufferUnlockBaseAddress(pb, kCVPixelBufferLock_ReadOnly);
+        return nil;
+    }
 
     for (int y = 0; y < height; y++) {
         uint8_t *row = src + y * stride;
@@ -108,53 +149,69 @@ static MLMultiArray* pixelBufferToNCHW(CVPixelBufferRef pb)
     return arr;
 }
 
-static CVPixelBufferRef resizePixelBuffer(CVPixelBufferRef source,
-                                          size_t width,
-                                          size_t height)
+static CVPixelBufferRef letterboxPixelBuffer(CVPixelBufferRef source,
+                                             int inputSize,
+                                             float &scale,
+                                             int &padX,
+                                             int &padY)
 {
-    if (!source) return nullptr;
+    size_t srcW = CVPixelBufferGetWidth(source);
+    size_t srcH = CVPixelBufferGetHeight(source);
+
+    scale = std::min((float)inputSize / srcW,
+                     (float)inputSize / srcH);
+
+    int newW = (int)(srcW * scale);
+    int newH = (int)(srcH * scale);
+
+    padX = (inputSize - newW) / 2;
+    padY = (inputSize - newH) / 2;
 
     NSDictionary *attrs = @{
-        (id)kCVPixelBufferWidthKey: @(width),
-        (id)kCVPixelBufferHeightKey: @(height),
+        (id)kCVPixelBufferWidthKey: @(inputSize),
+        (id)kCVPixelBufferHeightKey: @(inputSize),
         (id)kCVPixelBufferPixelFormatTypeKey: @(kCVPixelFormatType_32BGRA),
         (id)kCVPixelBufferIOSurfacePropertiesKey: @{}
     };
 
-    CVPixelBufferRef output = nullptr;
+    CVPixelBufferRef out = nullptr;
+    CVReturn ret = CVPixelBufferCreate(kCFAllocatorDefault,
+                        inputSize,
+                        inputSize,
+                        kCVPixelFormatType_32BGRA,
+                        (__bridge CFDictionaryRef)attrs,
+                        &out);
 
-    CVReturn status = CVPixelBufferCreate(kCFAllocatorDefault,
-                                          width,
-                                          height,
-                                          kCVPixelFormatType_32BGRA,
-                                          (__bridge CFDictionaryRef)attrs,
-                                          &output);
-
-    if (status != kCVReturnSuccess) {
-        qWarning() << "Failed to create resized PB";
-        return nullptr;
+    if (ret != kCVReturnSuccess || !out) {
+      qWarning() << "CVPixelBufferCreate failed:" << ret;
+      return nullptr;
     }
 
-    CIImage *inputImage = [CIImage imageWithCVPixelBuffer:source];
-    CIContext *context = [CIContext contextWithOptions:nil];
-    CGColorSpaceRef colorSpace = CGColorSpaceCreateDeviceRGB();
+    CIImage *srcImg = [CIImage imageWithCVPixelBuffer:source];
+    CIImage *scaled =
+        [srcImg imageByApplyingTransform:
+            CGAffineTransformMakeScale(scale, scale)];
 
-    [context render:inputImage
-    toCVPixelBuffer:output
-             bounds:CGRectMake(0, 0, width, height)
-         colorSpace:colorSpace];
+    CIImage *translated =
+        [scaled imageByApplyingTransform:
+            CGAffineTransformMakeTranslation(padX, padY)];
 
-    CGColorSpaceRelease(colorSpace);
+    static CIContext *ctx = [CIContext context];
+    [ctx render:translated toCVPixelBuffer:out];
 
-    return output;
+    return out;
 }
 
 /**
  * @brief Converts from QVideoFrame to CVPixelBufferRef.
- * @param frame
+ * @param frame, Input frame.
+ * @param info, Letterbox info output.
  * @return frame in CVPixelBufferRef format.
  */
-static CVPixelBufferRef QVideoFrame_to_CVPixelBuffer(QVideoFrame frame)
+static CVPixelBufferRef QVideoFrame_to_CVPixelBuffer(
+    QVideoFrame frame,
+    YoloParser::LetterboxInfo &info
+)
 {
 #ifdef __OBJC__
   @autoreleasepool {
@@ -223,7 +280,15 @@ static CVPixelBufferRef QVideoFrame_to_CVPixelBuffer(QVideoFrame frame)
 
         CVPixelBufferUnlockBaseAddress(pb, 0);
         f.unmap();
-        CVPixelBufferRef resizedPB = resizePixelBuffer(pb, 640, 640);
+        float scale;
+        int padX, padY;
+        CVPixelBufferRef resizedPB = letterboxPixelBuffer(pb, 640, scale, padX, padY);
+        info.scale = scale;
+        info.padX = padX;
+        info.padY = padY;
+        info.origW = width;
+        info.origH = height;
+        CVPixelBufferRelease(pb);
         return resizedPB;
     }
 
@@ -265,7 +330,15 @@ static CVPixelBufferRef QVideoFrame_to_CVPixelBuffer(QVideoFrame frame)
 
         CVPixelBufferUnlockBaseAddress(pb, 0);
         f.unmap();
-        CVPixelBufferRef resizedPB = resizePixelBuffer(pb, 640, 640);
+        float scale;
+        int padX, padY;
+        CVPixelBufferRef resizedPB = letterboxPixelBuffer(pb, 640, scale, padX, padY);
+        info.scale = scale;
+        info.padX = padX;
+        info.padY = padY;
+        info.origW = width;
+        info.origH = height;
+        CVPixelBufferRelease(pb);
         return resizedPB;
     }
 
@@ -279,16 +352,78 @@ static CVPixelBufferRef QVideoFrame_to_CVPixelBuffer(QVideoFrame frame)
 
 static MLMultiArray* makeBatch(const std::vector<CVPixelBufferRef> &frames)
 {
-  NSArray *shape = @[@2, @3, @640, @640];
-  MLMultiArray *batch = [[MLMultiArray alloc] initWithShape:shape dataType:MLMultiArrayDataTypeFloat32 error:nil];
-  float *dst = (float*)batch.dataPointer;
+  if(frames.size() != 2) {
+    qWarning() << "makeBatch requires exactly 2 frames";
+    return nil;
+  }
+  if (!frames[0] || !frames[1]) {
+    qWarning() << "Null frame in batch";
+    return nil;
+  }
+  for (auto &pb : frames) {
+    if (CVPixelBufferGetWidth(pb) != 640 ||
+      CVPixelBufferGetHeight(pb) != 640) {
+      qWarning() << "Unexpected pixel buffer size";
+      return nil;
+    }
+  }
+  NSError* error = nil;
 
-  for(int b=0; b<2; b++) {
-    MLMultiArray *img = pixelBufferToNCHW(frames[b]);
-    float *src = (float*)img.dataPointer;
+  MLMultiArray* batch = [[MLMultiArray alloc]
+      initWithShape:@[@2, @3, @640, @640]
+            dataType:MLMultiArrayDataTypeFloat32
+               error:&error];
 
-    int imgSize = 3*640*640;
-    memcpy(dst + b * imgSize, src, imgSize*sizeof(float));
+  if (error || !batch) {
+      qWarning() << "Failed to create MLMultiArray for batch";
+      return nil;
+  }
+
+  float* dst = (float*)batch.dataPointer;
+  NSArray* bs = batch.strides;
+  int strideB = [bs[0] intValue];
+  int strideC = [bs[1] intValue];
+  int strideY = [bs[2] intValue];
+  int strideX = [bs[3] intValue];
+
+  const bool contiguous =
+      strideX == 1 &&
+      strideY == 640 &&
+      strideC == 640 * 640 &&
+      strideB == 3 * 640 * 640;
+  const int imgSize = 3 * 640 * 640;
+  for(int b = 0; b<2; ++b) {
+    @autoreleasepool {
+      MLMultiArray* imgArr = pixelBufferToNCHW(frames[b]);
+      if(!imgArr) {
+        qWarning() << "Failed to convert frame to NCHW MLMultiArray";
+        return nil;
+      }
+      float* src = (float*)imgArr.dataPointer;
+      NSArray* is = imgArr.strides;
+      const int icS = [is[1] intValue];
+      const int iyS = [is[2] intValue];
+      const int ixS = [is[3] intValue];
+
+      const bool imgContiguous =
+          ixS == 1 &&
+          iyS == 640 &&
+          icS == 640 * 640;
+
+      if (contiguous && imgContiguous) {
+        memcpy(dst + b * imgSize,
+                src,
+                imgSize * sizeof(float));
+      } else {
+        for(int c=0; c<3; c++)
+        for(int y=0; y<640; y++)
+        for(int x=0; x<640; x++) {
+          int srcIdx = c * 640 * 640 + y * 640 + x;
+          int dstIdx = b * strideB + c * strideC + y * strideY + x * strideX;
+          dst[dstIdx] = src[srcIdx];
+        }
+      }
+    }
   }
   return batch;
 }
@@ -296,15 +431,18 @@ static MLMultiArray* makeBatch(const std::vector<CVPixelBufferRef> &frames)
 /**
  * @brief Process a batch of two frames at time in model.
  */
-void CameraModel::processBatch()
+void CameraModel::processBatch(std::vector<CVPixelBufferRef> frames)
 {
 #ifdef __OBJC__
     @autoreleasepool {
 
         if (!model) return;
-
         // Build ML input array
-        MLMultiArray *batch = makeBatch(batchFrames);
+        MLMultiArray *batch = makeBatch(frames);
+        if (!batch) {
+          qWarning() << "Batch creation failed, skipping inference";
+          return;
+        }
         MLFeatureValue *fv = [MLFeatureValue featureValueWithMultiArray:batch];
 
         NSDictionary *inputDict = @{ @"image": fv };
@@ -318,8 +456,14 @@ void CameraModel::processBatch()
             return;
         }
 
+        auto inferStart = std::chrono::high_resolution_clock::now();
+
         id<MLFeatureProvider> output =
             [model predictionFromFeatures:inputs error:&err];
+
+        auto inferEnd = std::chrono::high_resolution_clock::now();
+        double inferMs = std::chrono::duration<double, std::milli>(inferEnd - inferStart).count();
+        emit inferenceFinished(inferMs);
 
         if (err || !output) {
             qWarning() << "CoreML prediction failed";
@@ -334,11 +478,48 @@ void CameraModel::processBatch()
         }
 
         MLMultiArray *raw = rawVal.multiArrayValue;
-        float *data = (float*)raw.dataPointer;
+        NSArray<NSNumber*> *coremlShape = raw.shape;
+        NSArray<NSNumber*> *coremlStrides = raw.strides;
+        int B = coremlShape[0].intValue;
+        int C = coremlShape[1].intValue;
+        int N = coremlShape[2].intValue;
 
-        qDebug() << "Batch prediction OK, output count:" << raw.count;
+        qDebug() << "Raw output shape:" << coremlShape;
+        qDebug() << "Raw output strides:" << coremlStrides;
 
-        // TODO: run postprocessing here (one NMS per batch element)
+        size_t total = (size_t)B*C*N;
+
+        int strideB = [coremlStrides[0] intValue];
+        int strideC = [coremlStrides[1] intValue];
+        int strideN = [coremlStrides[2] intValue];
+
+        float *src = (float*)raw.dataPointer;
+        BOOL contiguous =
+            strideN == 1 &&
+            strideC == N &&
+            strideB == C * N;
+        qWarning() << "CoreML raw shape:"
+           << coremlShape
+           << "B:" << B
+           << "C:" << C
+           << "N:" << N;
+        QByteArray blob;
+        blob.resize(total * sizeof(float));
+        float *copy = reinterpret_cast<float*>(blob.data());;
+        if (contiguous) {
+          memcpy(copy, src, total * sizeof(float));
+        } else {
+          for(int b=0; b<B; b++)
+          for(int c=0; c<C; c++)
+          for(int n=0; n<N; n++) {
+            int srcIdx = b*strideB + c*strideC + n*strideN;
+            int dstIdx = b*C*N + c*N + n;
+            copy[dstIdx] = src[srcIdx];
+          }
+        }
+
+        qWarning() << "Output shape" << coremlShape.count << "Batch:" << coremlShape[0] << "channels" << coremlShape[1] << "boxes" << coremlShape[2];;
+        emit rawBatchReady(blob, B, C, N, letterboxInfo);
     }
 #endif
 }
@@ -415,23 +596,42 @@ void CameraModel::processWithCoreML(CVPixelBufferRef pb)
 void CameraModel::processFrameInBatch(const QVideoFrame& frame )
 {
 #ifdef __OBJC__
+  if (!frame.isValid() || frame.width() <= 0 || frame.height() <= 0) {
+    qWarning() << "Invalid video frame, skipping";
+    return;
+  }
   if(!model) return;
 
-  CVPixelBufferRef pb = QVideoFrame_to_CVPixelBuffer(frame);
+  if(batchInFligt) {
+    qWarning() << "Dropping frame, batch in flight";
+    return;
+  }
 
-  if(!pb) return;
+  YoloParser::LetterboxInfo info;
+  CVPixelBufferRef pb = QVideoFrame_to_CVPixelBuffer(frame, info);
+  if (!pb ||
+    CVPixelBufferGetWidth(pb) != 640 ||
+    CVPixelBufferGetHeight(pb) != 640) {
+    qWarning() << "Invalid pixel buffer, skipping batch";
+    if (pb) CVPixelBufferRelease(pb);
+    return;
+  }
+  if(batchFrames.empty()) {
+    letterboxInfo.clear();
+  }
 
-  CFRetain(pb);
+  letterboxInfo.push_back(info);
   batchFrames.push_back(pb);
 
   if(batchFrames.size() == 2) {
-    processBatch();
-    for(auto &p : batchFrames) CFRelease(p);
-    batchFrames.clear();
+    batchInFligt = true;
+    @autoreleasepool {
+      inFlightFrames.swap(batchFrames);
+      batchFrames.clear();
+      processBatch(inFlightFrames);
+    }
   }
-  CVPixelBufferRelease(pb);
 
-    // You will later connect this to detection signals
 #endif
 }
 
@@ -444,14 +644,18 @@ void CameraModel::processFrame(const QVideoFrame& frame )
 #ifdef __OBJC__
   if(!model) return;
 
-  CVPixelBufferRef pb = QVideoFrame_to_CVPixelBuffer(frame);
+  YoloParser::LetterboxInfo info;
+  CVPixelBufferRef pb = QVideoFrame_to_CVPixelBuffer(frame, info);
 
   if(!pb) return;
 
   processWithCoreML(pb);
-  CVPixelBufferRelease(pb);
-
-
     // You will later connect this to detection signals
 #endif
+}
+
+void CameraModel::handleDetections(int batchIndex, QList<YoloParser::Detection> detections)
+{
+  qDebug() << "BATCH" << batchIndex << "got" << detections.size() << "detections";
+  emit detectionsReady(batchIndex, detections);
 }
