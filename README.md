@@ -77,6 +77,8 @@ This project demonstrates:
 * Efficient real‑time multimedia processing
 * Practical ML inference integration (not a toy example)
 * QML ↔ C++ interoperability done right
+* Design decisions made with production constraints in mind (performance, ownership, clarity)
+
 
 It is intentionally written to be **readable, extensible, and reusable**.
 
@@ -84,7 +86,7 @@ It is intentionally written to be **readable, extensible, and reusable**.
 
 ## 🧩 Using This as a Reference
 
-You are encouraged to:
+You are welcome to:
 
 * Reuse parts of the architecture
 * Adapt the camera or ML pipeline
@@ -101,9 +103,18 @@ This project is licensed under **GPL‑3.0**.
 
 ---
 
+## 🤝 Contributions
+
+This repository is currently provided as a **read-only reference project**.
+
+While the code is open for learning and reuse under the GPL-3.0 license,
+I am **not accepting external contributions or pull requests at this time**.
+
+This may change in the future.
+
 ## 👤 Author
 
-**José de Jesús Deloya Cruz**
+**José de Jesús Deloya Cruz**  
 Software Engineer | C++ | Qt | Computer Vision | ML
 
 🔗 GitHub: [https://github.com/jedeloya](https://github.com/jedeloya)
