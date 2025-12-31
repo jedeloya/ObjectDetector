@@ -1,57 +1,91 @@
-# C++ objects and libs
-*.slo
-*.lo
+# ============================
+# C / C++ build artifacts
+# ============================
 *.o
 *.a
-*.la
-*.lai
 *.so
 *.so.*
 *.dll
 *.dylib
+*.lo
+*.la
+*.lai
+*.slo
 
-# Qt-es
-object_script.*.Release
-object_script.*.Debug
-*_plugin_import.cpp
-/.qmake.cache
-/.qmake.stash
-*.pro.user
-*.pro.user.*
-*.qbs.user
-*.qbs.user.*
+# ============================
+# Qt generated files
+# ============================
 *.moc
 moc_*.cpp
 moc_*.h
 qrc_*.cpp
 ui_*.h
+*_plugin_import.cpp
+*_qmlcache.qrc
 *.qmlc
 *.jsc
-Makefile*
-*build-*
 *.qm
 *.prl
-
-# Qt unit tests
 target_wrapper.*
 
-# QtCreator
-*.autosave
-
-# QtCreator Qml
+# ============================
+# QtCreator / Qt user files
+# ============================
+*.pro.user
+*.pro.user.*
+*.qbs.user
+*.qbs.user.*
 *.qmlproject.user
 *.qmlproject.user.*
-
-# QtCreator CMake
+*.autosave
 CMakeLists.txt.user*
+*creator.user*
+.qtcreator
+.qtc_clangd/
+.qtc_clangd_index/
 
-# QtCreator 4.8< compilation database
+# ============================
+# CMake
+# ============================
+CMakeFiles/
+CMakeCache.txt
+cmake_install.cmake
+Makefile
 compile_commands.json
 
-# QtCreator local machine specific files for imported projects
-*creator.user*
+# ============================
+# Build directories
+# ============================
+build/
+build-*/
+cmake-build-*/
+out/
 
-*_qmlcache.qrc
-.qtcreator
-build
+# ============================
+# macOS / Xcode / Instruments
+# ============================
 .DS_Store
+*.dSYM/
+*.trace
+*.tracev3
+*.xcactivitylog
+*.profraw
+*.profdata
+
+# ============================
+# App bundles
+# ============================
+*.app/
+
+# ============================
+# CoreML generated output
+# ============================
+compiled_model/
+*.mlmodelc/
+
+# ============================
+# Test output
+# ============================
+Testing/
+test-results/
+*.log
