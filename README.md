@@ -84,6 +84,37 @@ It is intentionally written to be **readable, extensible, and reusable**.
 
 ---
 
+## 🔨 Build & Run (macOS)
+
+This project is built and tested on **macOS** using **Qt 6.10.0** and **CMake**.
+
+A convenience script (`build.sh`) is provided to manage builds, runs, and cleanup without relying on Qt Creator.
+
+### Prerequisites
+
+- macOS (Apple Silicon or Intel)
+- Qt **6.10.0** installed (default path expected: `~/Qt/6.10.0/macos`)
+- Xcode command line tools
+- CMake ≥ 3.16
+
+---
+
+### Build
+
+Available build types:
+
+- `Debug` — development and debugging
+- `Release` — optimized release build
+- `RelWithDebInfo` — optimized build with debug symbols (recommended for profiling)
+
+```bash
+./build.sh build Debug
+./build.sh build Release
+./build.sh build RelWithDebInfo
+
+
+---
+
 ## 🧩 Using This as a Reference
 
 You are welcome to:

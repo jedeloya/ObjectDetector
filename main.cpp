@@ -27,9 +27,10 @@ int main(int argc, char *argv[])
 {
     QGuiApplication app(argc, argv);
 
-    qmlRegisterType<DetectionController>("Detector", 1, 0, "Controller");
+    DetectionController controller;
 
     QQmlApplicationEngine engine;
+    engine.rootContext()->setContextProperty("controller", &controller);
 
     QObject::connect(
         &engine,

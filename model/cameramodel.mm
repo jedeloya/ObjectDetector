@@ -35,13 +35,14 @@
 CameraModel::CameraModel(QObject *parent)
     : QObject{parent}, model(nil)
 {
-  loadModel();
   parser = new YoloParser();
   parseThread = new QThread(this);
   parser->moveToThread(parseThread);
-  connect(parseThread, &QThread::finished,
-          parser, &QObject::deleteLater);
+
   parseThread->start();
+
+  connect(parseThread, &QThread::finished,
+         parser, &QObject::deleteLater);
 
   connect(this, &CameraModel::rawBatchReady,
           parser, &YoloParser::parseBatch,
@@ -67,6 +68,8 @@ CameraModel::CameraModel(QObject *parent)
 }
 
 CameraModel::~CameraModel() {
+  qWarning() << "CameraModel destroyed in thread"
+             << QThread::currentThread();
   if(parseThread) {
     parseThread->quit();
     parseThread->wait();
@@ -478,7 +481,10 @@ void CameraModel::processBatch(std::vector<CVPixelBufferRef> frames)
 #ifdef __OBJC__
     @autoreleasepool {
 
-        if (!model) return;
+        if (!model) {
+          qWarning() << "No ML model loaded, attempting to load";
+          return;
+        }
         // Build ML input array
         MLMultiArray *batch = makeBatch(frames);
         if (!batch) {
@@ -642,7 +648,11 @@ void CameraModel::processFrameInBatch(const QVideoFrame& frame )
     qWarning() << "Invalid video frame, skipping";
     return;
   }
-  if(!model) return;
+  if(!model) {
+    qWarning() << "No ML model loaded, attempting to load";
+    loadModel();
+    return;
+  }
 
   if(batchInFligt) {
     qWarning() << "Dropping frame, batch in flight";
@@ -655,7 +665,15 @@ void CameraModel::processFrameInBatch(const QVideoFrame& frame )
     CVPixelBufferGetWidth(pb) != 640 ||
     CVPixelBufferGetHeight(pb) != 640) {
     qWarning() << "Invalid pixel buffer, skipping batch";
-    if (pb) CVPixelBufferRelease(pb);
+    // if (pb) CVPixelBufferRelease(pb);
+    @autoreleasepool {
+      for (auto &buf : inFlightFrames) {
+          CVPixelBufferRelease(buf);
+      }
+      inFlightFrames.clear();
+      batchInFligt = false;
+    }
+    emit parsingFinished(0.0);
     return;
   }
   if(batchFrames.empty()) {
@@ -684,7 +702,11 @@ void CameraModel::processFrameInBatch(const QVideoFrame& frame )
 void CameraModel::processFrame(const QVideoFrame& frame )
 {
 #ifdef __OBJC__
-  if(!model) return;
+  if(!model) {
+    qWarning() << "No ML model loaded, attempting to load";
+    loadModel();
+    return;
+  }
 
   YoloParser::LetterboxInfo info;
   CVPixelBufferRef pb = QVideoFrame_to_CVPixelBuffer(frame, info);
@@ -696,7 +718,7 @@ void CameraModel::processFrame(const QVideoFrame& frame )
 #endif
 }
 
-void CameraModel::handleDetections(int batchIndex, QList<YoloParser::Detection> detections)
+void CameraModel::handleDetections(int batchIndex, QList<Detection> detections)
 {
   qDebug() << "BATCH" << batchIndex << "got" << detections.size() << "detections";
   emit detectionsReady(batchIndex, detections);

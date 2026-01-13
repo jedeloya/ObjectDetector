@@ -25,6 +25,10 @@
 
 #include <QObject>
 #include <QRect>
+#include <QtCore/qdebug.h>
+#include <QThread>
+
+#include "../helpers/detection.h"
 
 constexpr float CONF_THRESH = 0.45f;
 constexpr float IOU_THRESH  = 0.45f;
@@ -36,20 +40,15 @@ class YoloParser : public QObject
     Q_OBJECT
 public:
     explicit YoloParser(QObject *parent = nullptr);
+    ~YoloParser() {
+        qWarning() << "YoloParser destroyed in thread"
+                   << QThread::currentThread();
+    };
 
     struct TensorShape {
         int batch;
         int channels;
         int boxes;
-    };
-
-    struct Detection {
-        int classId;
-        QRect rect;
-        QString label;
-        float score;
-        int origW = 0;
-        int origH = 0;
     };
 
     struct LetterboxInfo {
@@ -59,6 +58,12 @@ public:
         int origW = 0;
         int origH = 0;
     };
+
+    QList<Detection> decodeDetections(
+        const float* data,
+        const TensorShape &shape,
+        int batchIndex
+    ) const;
 
     // Public API for parsing YOLO tensors
     static QList<Detection> parse(
@@ -82,7 +87,7 @@ public:
     static const QStringList YOLO_CLASSES;
 
 signals:
-    void detectionsReady(int batchIndex, QList<YoloParser::Detection> detections);
+    void detectionsReady(int batchIndex, QList<Detection> detections);
     void parsingFinished(double ms);
 private:
     static float sigmoid(float x);
@@ -96,8 +101,8 @@ private:
                          float iouThreshold);
 };
 
-Q_DECLARE_METATYPE(YoloParser::Detection)
-Q_DECLARE_METATYPE(QList<YoloParser::Detection>)
+Q_DECLARE_METATYPE(Detection)
+Q_DECLARE_METATYPE(QList<Detection>)
 Q_DECLARE_METATYPE(YoloParser::LetterboxInfo)
 
 #endif // YOLOPARSER_H

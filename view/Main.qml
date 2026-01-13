@@ -26,8 +26,6 @@ import QtQuick.Controls.Basic
 import QtMultimedia
 import QtCore
 
-import Detector 1.0
-
 Window {
     width: 640
     height: 640
@@ -49,13 +47,6 @@ Window {
         id: captureSession
         camera: camera
         videoOutput: videoOutput1
-    }
-
-    Controller {
-        id: controller
-        videoSink: cameraPermission.status === Qt.PermissionStatus.Granted
-                   ? videoOutput1.videoSink
-                   : null
     }
 
     MediaDevices {
@@ -116,7 +107,10 @@ Window {
         }
     }
 
-    Component.onCompleted: cameraPermission.request()
+    Component.onCompleted: {
+        cameraPermission.request()
+        controller.videoSink = videoOutput1.videoSink
+    }
 
     Rectangle {
         x: videoOutput1.contentRect.x

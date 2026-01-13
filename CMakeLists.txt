@@ -11,6 +11,15 @@ cmake_minimum_required(VERSION 3.16)
 
 project(ObjectDetector VERSION 0.1 LANGUAGES CXX)
 
+# --------------------------------------------------
+# Build-type–specific compiler flags (macOS)
+# --------------------------------------------------
+if(APPLE AND CMAKE_CXX_COMPILER_ID MATCHES "Clang")
+    set(CMAKE_CXX_FLAGS_DEBUG "-O0 -g")
+    set(CMAKE_CXX_FLAGS_RELEASE "-O3")
+    set(CMAKE_CXX_FLAGS_RELWITHDEBINFO "-O2 -g")
+endif()
+
 set(CMAKE_CXX_STANDARD 17)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
 
@@ -18,16 +27,29 @@ set(CMAKE_CXX_STANDARD_REQUIRED ON)
 find_package(Qt6 REQUIRED COMPONENTS Core Quick Multimedia)
 qt_standard_project_setup(REQUIRES 6.8)
 
+add_library(ObjectDetectorCore
+    model/yoloparser.cpp
+)
+
+target_include_directories(ObjectDetectorCore PUBLIC
+    model
+)
+
+target_link_libraries(ObjectDetectorCore
+    PRIVATE Qt6::Core
+)
+
 set(SRC_FILES
     main.cpp
     controller/detectioncontroller.cpp
     model/cameramodel.mm
-    model/yoloparser.cpp)
+)
 
 set(HEADER_FILES
     controller/detectioncontroller.h
     model/cameramodel.hpp
-    model/yoloparser.h)
+    model/yoloparser.h
+)
 
 set_source_files_properties(
     model/cameramodel.mm
@@ -35,11 +57,9 @@ set_source_files_properties(
         COMPILE_FLAGS "-x objective-c++ -fobjc-arc"
 )
 
-# Copy CoreML model into the app bundle
-set(MODEL_FILE ${CMAKE_SOURCE_DIR}/resources/yolo11n.mlpackage)
 
-
-qt_add_executable(appObjectDetector MACOSX_BUNDLE
+qt_add_executable(appObjectDetector
+    MACOSX_BUNDLE
     ${SRC_FILES}
     ${HEADER_FILES}
 )
@@ -48,10 +68,15 @@ qt_add_qml_module(appObjectDetector
     URI ObjectDetector
     VERSION 1.0
     QML_FILES view/Main.qml
+    SOURCES helpers/detection.h
 )
 
 target_link_libraries(appObjectDetector
-    PRIVATE Qt6::Quick Qt6::Core Qt6::Multimedia
+    PRIVATE
+    Qt6::Quick
+    Qt6::Core
+    Qt6::Multimedia
+    ObjectDetectorCore
 )
 
 # CoreML is specific to macOS, so we check if we are on macOS
@@ -86,6 +111,8 @@ set_target_properties(appObjectDetector PROPERTIES
 # CoreML compilation
 # -------------------------------------------------------------------
 if(APPLE)
+    # Copy CoreML model into the app bundle
+    set(MODEL_FILE ${CMAKE_SOURCE_DIR}/resources/yolo11n.mlpackage)
     set(MLMODEL_BUILD_DIR ${CMAKE_BINARY_DIR}/compiled_model)
     set(MLMODEL_STAMP ${MLMODEL_BUILD_DIR}/yolo11n.stamp)
 
@@ -136,3 +163,4 @@ install(TARGETS appObjectDetector
 
 
 
+add_subdirectory(tests)

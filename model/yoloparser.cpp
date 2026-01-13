@@ -24,7 +24,6 @@
 #include <algorithm>
 #include <numeric>
 #include <unordered_map>
-#include <cmath>
 
 #include <QDebug>
 #include <QFuture>
@@ -132,7 +131,7 @@ std::vector<int> YoloParser::nms(const std::vector<float>& xs,
  * @param inputH, height of the input image
  * @return
  */
-QList<YoloParser::Detection> YoloParser::parse(
+QList<Detection> YoloParser::parse(
     const float* data,
     const TensorShape &shape,
     const LetterboxInfo& letterbox,
@@ -142,7 +141,7 @@ QList<YoloParser::Detection> YoloParser::parse(
     int inputW,
     int inputH)
 {
-    QList<YoloParser::Detection> detections;
+    QList<Detection> detections;
     if(!data) return detections;
     if(batchIndex < 0 || batchIndex >= shape.batch) return detections;
 

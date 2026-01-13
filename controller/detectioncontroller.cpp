@@ -62,7 +62,7 @@ void DetectionController::setVideoSink(QVideoSink* sink)
             this, &DetectionController::handleFrame);
 }
 
-void DetectionController::onDetectionsReady(int batchIndex, const QList<YoloParser::Detection> &detections)
+void DetectionController::onDetectionsReady(int batchIndex, const QList<Detection> &detections)
 {
     QVariantList list;
     list.reserve(detections.size());

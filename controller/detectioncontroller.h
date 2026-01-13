@@ -53,7 +53,7 @@ signals:
 
 private slots:
     void handleFrame(const QVideoFrame& frame);
-    void onDetectionsReady(int batchIndex, const QList<YoloParser::Detection>& detections);
+    void onDetectionsReady(int batchIndex, const QList<Detection>& detections);
 private:
     CameraModel *m_camera = nullptr;
     QString m_inferenceTime;

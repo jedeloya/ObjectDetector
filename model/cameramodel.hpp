@@ -65,9 +65,9 @@ signals:
     void rawBatchReady(QByteArray data, int batchCount, int channels, int boxes, QVector<YoloParser::LetterboxInfo> letterboxInfo);
     void inferenceFinished(double ms);
     void parsingFinished(double ms);
-    void detectionsReady(int batchIdx, QList<YoloParser::Detection> detections);
+    void detectionsReady(int batchIdx, QList<Detection> detections);
 private slots:
-    void handleDetections(int batchIndex, QList<YoloParser::Detection> detections);
+    void handleDetections(int batchIndex, QList<Detection> detections);
 #ifdef __OBJC__
     void processWithCoreML(CVPixelBufferRef pb);
     void processBatch(std::vector<CVPixelBufferRef> frames);
