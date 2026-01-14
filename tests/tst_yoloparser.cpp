@@ -1,7 +1,13 @@
 #include <QTest>
-#include <../model/yoloparser.h>
+#include "../model/yoloparser.h"
 
-// add necessary includes here
+/** Uncomment the following lines to enable debug logging for this test cases. **/
+// #include <QLoggingCategory>
+// static void enableDebugLogs() {
+//     QLoggingCategory::setFilterRules("*.debug=true");
+// }
+
+// Q_CONSTRUCTOR_FUNCTION(enableDebugLogs)
 
 class TestYoloParser : public QObject
 {
@@ -139,20 +145,23 @@ void TestYoloParser::overlappingBoxesAreSuppressed()
     YoloParser::TensorShape shape = {1,6,2};
 
     float data[] = {
-        // Box 1
-        320.f, // cx
-        240.f, // cy
-        100.f, // w
-        80.f,  // h
-        0.9f,  // class 0
-        0.1f,  // class 1
-        // Box 2 (overlapping)
-        325.f, // cx
-        245.f, // cy
-        100.f, // w
-        80.f,  // h
-        0.85f, // class 0
-        0.15f  // class 1
+        // cx (channel 0)
+        320.f, 325.f,
+
+        // cy (channel 1)
+        240.f, 245.f,
+
+        // w (channel 2)
+        100.f, 100.f,
+
+        // h (channel 3)
+        80.f, 80.f,
+
+        // class 0 scores (channel 4)
+        0.9f, 0.85f,
+
+        // class 1 scores (channel 5)
+        0.1f, 0.15f
     };
 
     YoloParser::LetterboxInfo letterbox;

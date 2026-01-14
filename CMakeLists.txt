@@ -9,19 +9,42 @@
 
 cmake_minimum_required(VERSION 3.16)
 
-project(ObjectDetector VERSION 0.1 LANGUAGES CXX)
-
-# --------------------------------------------------
-# Build-type–specific compiler flags (macOS)
-# --------------------------------------------------
-if(APPLE AND CMAKE_CXX_COMPILER_ID MATCHES "Clang")
-    set(CMAKE_CXX_FLAGS_DEBUG "-O0 -g")
-    set(CMAKE_CXX_FLAGS_RELEASE "-O3")
-    set(CMAKE_CXX_FLAGS_RELWITHDEBINFO "-O2 -g")
-endif()
+project(ObjectDetector VERSION 0.1 LANGUAGES CXX OBJCXX)
 
 set(CMAKE_CXX_STANDARD 17)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
+set(CMAKE_EXPORT_COMPILE_COMMANDS ON)
+
+function(set_optimizations target)
+     # Apple + Clang
+    if(APPLE AND CMAKE_CXX_COMPILER_ID STREQUAL "Clang")
+        target_compile_options(${target} PRIVATE
+            $<$<CONFIG:Debug>:-O0 -g>
+            $<$<CONFIG:Release>:-O3>
+            $<$<CONFIG:RelWithDebInfo>:-O2 -g>
+        )
+    endif()
+
+    # Linux + GCC/Clang (future)
+    if(UNIX AND NOT APPLE AND
+       (CMAKE_CXX_COMPILER_ID STREQUAL "GNU" OR
+        CMAKE_CXX_COMPILER_ID STREQUAL "Clang"))
+        target_compile_options(${target} PRIVATE
+            $<$<CONFIG:Debug>:-O0 -g>
+            $<$<CONFIG:Release>:-O3>
+            $<$<CONFIG:RelWithDebInfo>:-O2 -g>
+        )
+    endif()
+
+    # Windows + MSVC (future)
+    if(MSVC)
+        target_compile_options(${target} PRIVATE
+            $<$<CONFIG:Debug>:/Od /Zi>
+            $<$<CONFIG:Release>:/O2>
+            $<$<CONFIG:RelWithDebInfo>:/O2 /Zi>
+        )
+    endif()
+endfunction()
 
 # Find the Qt6 package and components you need (Core, Quick, Multimedia)
 find_package(Qt6 REQUIRED COMPONENTS Core Quick Multimedia)
@@ -31,12 +54,14 @@ add_library(ObjectDetectorCore
     model/yoloparser.cpp
 )
 
+set_optimizations(ObjectDetectorCore)
+
 target_include_directories(ObjectDetectorCore PUBLIC
     model
 )
 
 target_link_libraries(ObjectDetectorCore
-    PRIVATE Qt6::Core
+    PUBLIC Qt6::Core
 )
 
 set(SRC_FILES
@@ -54,7 +79,8 @@ set(HEADER_FILES
 set_source_files_properties(
     model/cameramodel.mm
     PROPERTIES
-        COMPILE_FLAGS "-x objective-c++ -fobjc-arc"
+        LANGUAGE  OBJCXX
+        COMPILE_OPTIONS "-fobjc-arc"
 )
 
 
@@ -63,6 +89,8 @@ qt_add_executable(appObjectDetector
     ${SRC_FILES}
     ${HEADER_FILES}
 )
+
+set_optimizations(appObjectDetector)
 
 qt_add_qml_module(appObjectDetector
     URI ObjectDetector
@@ -161,6 +189,5 @@ install(TARGETS appObjectDetector
     RUNTIME DESTINATION ${CMAKE_INSTALL_BINDIR}
 )
 
-
-
+enable_testing()
 add_subdirectory(tests)

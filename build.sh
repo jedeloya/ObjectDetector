@@ -36,8 +36,10 @@ build)
         -DCMAKE_PREFIX_PATH="${QT_PATH}"
 
     cmake --build . --parallel
-    ;;
 
+    echo "🧪 Running tests..."
+    ctest --output-on-failure --parallel $(sysctl -n hw.ncpu)
+    ;;
 run)
     echo "▶️ Running (${BUILD_TYPE})"
 
