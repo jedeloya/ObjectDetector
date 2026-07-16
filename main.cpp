@@ -22,6 +22,7 @@
 #include <QQmlContext>
 
 #include "controller/detectioncontroller.h"
+#include "version.h"
 
 int main(int argc, char *argv[])
 {
@@ -31,6 +32,7 @@ int main(int argc, char *argv[])
 
     QQmlApplicationEngine engine;
     engine.rootContext()->setContextProperty("controller", &controller);
+    engine.rootContext()->setContextProperty("appVersion", QStringLiteral(OBJECTDETECTOR_VERSION));
 
     QObject::connect(
         &engine,

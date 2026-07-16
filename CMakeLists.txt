@@ -9,7 +9,17 @@
 
 cmake_minimum_required(VERSION 3.16)
 
-project(ObjectDetector VERSION 0.1 LANGUAGES CXX OBJCXX)
+project(ObjectDetector
+    VERSION 0.1.0
+    DESCRIPTION "Cross-platform Object Detector using YOLO and Qt"
+    LANGUAGES CXX OBJCXX
+)
+
+configure_file(
+    ${CMAKE_SOURCE_DIR}/cmake/version.h.in
+    ${CMAKE_BINARY_DIR}/generated/version.h
+    @ONLY
+)
 
 set(CMAKE_CXX_STANDARD 17)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
@@ -54,10 +64,16 @@ add_library(ObjectDetectorCore
     model/yoloparser.cpp
 )
 
+set_target_properties(ObjectDetectorCore PROPERTIES
+    VERSION ${PROJECT_VERSION}
+    SOVERSION ${PROJECT_VERSION_MAJOR}
+)
+
 set_optimizations(ObjectDetectorCore)
 
 target_include_directories(ObjectDetectorCore PUBLIC
     model
+    ${CMAKE_BINARY_DIR}/generated
 )
 
 target_link_libraries(ObjectDetectorCore

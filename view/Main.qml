@@ -26,11 +26,14 @@ import QtQuick.Controls.Basic
 import QtMultimedia
 import QtCore
 
-Window {
+ApplicationWindow {
     width: 640
     height: 640
     visible: true
-    title: qsTr("Object detector.")
+    title: qsTr("Object detector V" + appVersion)
+
+    visibility: Window.Windowed
+    flags: Qt.Window
 
     CameraPermission {
         id: cameraPermission
@@ -65,6 +68,7 @@ Window {
         model: mediaDevices.videoInputs
         textRole: "description"
         valueRole: "id"
+        implicitContentWidthPolicy: ComboBox.WidestTextWhenCompleted
         background: Rectangle {
             color: "white"
             radius: 6

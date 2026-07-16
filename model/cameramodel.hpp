@@ -30,13 +30,21 @@
 #include <QVariantList>
 #include <QVector>
 
+#include <atomic>
+#include <vector>
+
 #include "yoloparser.h"
 
 #ifdef __OBJC__
 #import <CoreML/CoreML.h>
 #import <CoreVideo/CoreVideo.h>
+#else
+struct __CVBuffer;
+using CVPixelBufferRef = __CVBuffer *;
+class MLModel;
 #endif
 
+class QThread;
 
 class CameraModel : public QObject
 {
@@ -55,12 +63,14 @@ private:
     YoloParser *parser = nullptr;
     QThread *parseThread = nullptr;
     std::atomic_bool batchInFligt{false};
-#ifdef __OBJC__
     std::vector<CVPixelBufferRef> inFlightFrames;
-#endif
     QVector<YoloParser::LetterboxInfo> letterboxInfo;
+    MLModel *model = nullptr;
+    std::vector<CVPixelBufferRef> batchFrames;
 
     void loadModel();
+    void processWithCoreML(CVPixelBufferRef pb);
+    void processBatch(std::vector<CVPixelBufferRef> frames);
 signals:
     void rawBatchReady(QByteArray data, int batchCount, int channels, int boxes, QVector<YoloParser::LetterboxInfo> letterboxInfo);
     void inferenceFinished(double ms);
@@ -68,12 +78,6 @@ signals:
     void detectionsReady(int batchIdx, QList<Detection> detections);
 private slots:
     void handleDetections(int batchIndex, QList<Detection> detections);
-#ifdef __OBJC__
-    void processWithCoreML(CVPixelBufferRef pb);
-    void processBatch(std::vector<CVPixelBufferRef> frames);
-    MLModel *model;  // CoreML model
-    std::vector<CVPixelBufferRef> batchFrames;
-#endif
 };
 
 #endif // CAMERAMODEL_H

@@ -28,6 +28,8 @@
 #include <QThread>
 #include <QVector>
 
+#include <algorithm>
+
 #import <Foundation/Foundation.h>
 #import <CoreVideo/CoreVideo.h>
 #import <CoreImage/CoreImage.h>
@@ -73,6 +75,7 @@ CameraModel::~CameraModel() {
   if(parseThread) {
     parseThread->quit();
     parseThread->wait();
+    parseThread->disconnect();
   }
 
 #ifdef __OBJC__
@@ -93,6 +96,7 @@ CameraModel::~CameraModel() {
     model = nil;
   }
 #endif
+  this->disconnect();
 }
 
 void CameraModel::loadModel()
@@ -115,7 +119,10 @@ void CameraModel::loadModel()
 
     NSError *error = nil;
     MLModelConfiguration *config = [[MLModelConfiguration alloc] init];
-    config.computeUnits = MLComputeUnitsAll;
+    // The dynamic batch-2 model currently aborts inside the Metal/MPSGraph
+    // specialization path. Force the CPU backend so CoreML returns normal
+    // NSError failures instead of terminating the process in Metal.
+    config.computeUnits = MLComputeUnitsCPUAndNeuralEngine;
     MLModel* loaded = nil;
     if([MLModel respondsToSelector:@selector(modelWithContentsOfURL:configuration:error:)]) {
       loaded = [MLModel modelWithContentsOfURL:url configuration:config error:&error];
@@ -307,8 +314,12 @@ static CVPixelBufferRef QVideoFrame_to_CVPixelBuffer(
             const uint8_t *srcY = f.bits(0);
             size_t srcStrideY = f.bytesPerLine(0);
 
+            const size_t bytesToCopyY = std::min(srcStrideY, dstStrideY);
+
             for (int y=0; y<height; ++y)
-                memcpy(dstY + y*dstStrideY, srcY + y*srcStrideY, srcStrideY);
+                memcpy(dstY + y*dstStrideY,
+                       srcY + y*srcStrideY,
+                       bytesToCopyY);
         }
 
         // Write UV plane
@@ -319,8 +330,12 @@ static CVPixelBufferRef QVideoFrame_to_CVPixelBuffer(
             const uint8_t *srcUV = f.bits(1);
             size_t srcStrideUV = f.bytesPerLine(1);
 
+            const size_t bytesToCopyUV = std::min(srcStrideUV, dstStrideUV);
+
             for (int y=0; y<height/2; ++y)
-                memcpy(dstUV + y*dstStrideUV, srcUV + y*srcStrideUV, srcStrideUV);
+                memcpy(dstUV + y*dstStrideUV,
+                       srcUV + y*srcStrideUV,
+                       bytesToCopyUV);
         }
 
         CVPixelBufferUnlockBaseAddress(pb, 0);
@@ -370,8 +385,12 @@ static CVPixelBufferRef QVideoFrame_to_CVPixelBuffer(
         const uint8_t *src = f.bits(0);
         size_t srcStride = f.bytesPerLine(0);
 
+        const size_t bytesToCopy = std::min(srcStride, dstStride);
+
         for (int y = 0; y < height; y++)
-            memcpy(dst + y*dstStride, src + y*srcStride, srcStride);
+            memcpy(dst + y*dstStride,
+                   src + y*srcStride,
+                   bytesToCopy);
 
         CVPixelBufferUnlockBaseAddress(pb, 0);
         f.unmap();

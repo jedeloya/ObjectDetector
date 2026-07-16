@@ -46,6 +46,11 @@ DetectionController::DetectionController(QObject *parent)
             this, &DetectionController::onDetectionsReady);
 }
 
+DetectionController::~DetectionController()
+{
+    this->disconnect();
+}
+
 void DetectionController::handleFrame(const QVideoFrame &frame)
 {
     if(!frame.isValid()) return;

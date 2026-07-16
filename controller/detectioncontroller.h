@@ -40,6 +40,7 @@ class DetectionController : public QObject
     Q_PROPERTY(QVariantList detections READ detections NOTIFY detectionsChanged FINAL)
 public:
     explicit DetectionController(QObject *parent = nullptr);
+    ~DetectionController();
     void setVideoSink(QVideoSink* sink);
     QString inferenceTime() const { return m_inferenceTime; }
     QString parseTime() const { return m_parseTime; }
